@@ -1,0 +1,316 @@
+---
+title: 'Utility Validators'
+description: 'Utility validators for composing schemas: optional, or, and and'
+---
+
+## b.optional()
+
+Makes a schema optional, allowing `undefined` values to pass validation.
+
+```typescript
+b.optional(schema?: Schema, options?: OptionalOptions)
+```
+
+### Parameters
+
+<ParamField path="schema" type="Schema" optional>
+  The validator schema that non-undefined values will be validated against.
+  
+  ```typescript
+  const schema = b.optional(b.string());
+  ```
+</ParamField>
+
+<ParamField path="options" type="OptionalOptions" optional>
+  Configuration options for the optional validator.
+  
+  <Expandable title="OptionalOptions">
+    <ParamField path="notMatchSchema" type="string" optional>
+      Custom error message when a non-undefined value doesn't match the schema. Default: `"Optional does not match schema"`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Implementation
+
+```typescript validators.ts:137-147
+optional: (schema?: Schema, options?: OptionalOptions) => {
+  return {
+    validate(input?: any) {
+      let valid = handle();
+
+      check(valid, input == undefined || schema.validate(input).valid, options?.notMatchSchema ?? "Optional does not match schema");
+
+      return valid;
+    },
+  };
+}
+```
+
+### Usage
+
+<CodeGroup>
+```typescript Basic Optional
+import { b } from "balid";
+
+const schema = b.optional(b.string());
+
+schema.validate("hello world"); // { valid: true, errors: [] }
+schema.validate(undefined); // { valid: true, errors: [] }
+schema.validate(); // { valid: true, errors: [] }
+```
+
+```typescript Optional in Objects
+import { b } from "balid";
+
+const schema = b.object({
+  name: b.string(),
+  email: b.optional(b.string({ match: /@/ }))
+});
+
+schema.validate({ name: "John" }); // { valid: true, errors: [] }
+schema.validate({ name: "John", email: "john@example.com" }); // { valid: true, errors: [] }
+```
+</CodeGroup>
+
+---
+
+## b.or()
+
+Validates that the input matches at least one of the provided schemas.
+
+```typescript
+b.or(options: OrOptions, ...schemas: Schema[])
+```
+
+### Parameters
+
+<ParamField path="options" type="OrOptions" required>
+  Configuration options for the or validator.
+  
+  <Expandable title="OrOptions">
+    <ParamField path="notMatchSchema" type="string" optional>
+      Custom error message when input doesn't match any schema. Default: `"Or does not match schema"`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="...schemas" type="Schema[]" required>
+  Variable number of schemas. The input must match at least one of these schemas.
+  
+  ```typescript
+  const schema = b.or({}, b.string(), b.number());
+  ```
+</ParamField>
+
+### Implementation
+
+```typescript validators.ts:148-166
+or: (options: OrOptions, ...schemas: Schema[]) => {
+  return {
+    validate(input) {
+      let valid = handle();
+
+      for (const schema of schemas) {
+        const validate = schema.validate(input);
+
+        if (validate.valid) {
+          valid.valid = true;
+  
+          return valid;
+        }
+      }
+
+      return { valid: false, errors: [options.notMatchSchema ?? "Or does not match schema"] };
+    },
+  };
+}
+```
+
+### Usage
+
+<CodeGroup>
+```typescript Basic Union
+import { b } from "balid";
+
+const schema = b.or({}, b.string(), b.boolean());
+
+schema.validate("hello world"); // { valid: true, errors: [] }
+schema.validate(true); // { valid: true, errors: [] }
+schema.validate(123); // { valid: false, errors: ["Or does not match schema"] }
+```
+
+```typescript Multiple Types
+import { b } from "balid";
+
+const schema = b.or({}, 
+  b.string({ min: 5 }),
+  b.number({ min: 100 }),
+  b.boolean()
+);
+
+schema.validate("hello"); // { valid: true, errors: [] }
+schema.validate(150); // { valid: true, errors: [] }
+schema.validate(false); // { valid: true, errors: [] }
+schema.validate(50); // { valid: false, errors: ["Or does not match schema"] }
+```
+
+```typescript Custom Error Message
+import { b } from "balid";
+
+const schema = b.or(
+  { notMatchSchema: "Must be either a string or number" },
+  b.string(),
+  b.number()
+);
+
+schema.validate(true);
+// { valid: false, errors: ["Must be either a string or number"] }
+```
+</CodeGroup>
+
+---
+
+## b.and()
+
+Validates that the input matches all of the provided schemas.
+
+```typescript
+b.and(options: AndOptions, ...schemas: Schema[])
+```
+
+### Parameters
+
+<ParamField path="options" type="AndOptions" required>
+  Configuration options for the and validator.
+  
+  <Expandable title="AndOptions">
+    <ParamField path="notMatchSchema" type="string" optional>
+      Custom error message when input doesn't match all schemas. Default: `"And does not match schema"`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="...schemas" type="Schema[]" required>
+  Variable number of schemas. The input must match all of these schemas.
+  
+  ```typescript
+  const schema = b.and({}, b.any(), b.boolean());
+  ```
+</ParamField>
+
+### Implementation
+
+```typescript validators.ts:167-185
+and: (options: AndOptions, ...schemas: Schema[]) => {
+  return {
+    validate(input) {
+      let valid = handle();
+
+      for (const schema of schemas) {
+        if (!schema.validate(input).valid) {
+          return {
+            valid: false,
+            errors: [options.notMatchSchema ?? "And does not match schema"],
+          };
+        }
+      }
+
+      return valid;
+    },
+  };
+}
+```
+
+### Usage
+
+<CodeGroup>
+```typescript Basic Intersection
+import { b } from "balid";
+
+const schema = b.and({}, b.any(), b.boolean());
+
+schema.validate(true); // { valid: true, errors: [] }
+schema.validate("string"); // { valid: false, errors: ["And does not match schema"] }
+```
+
+```typescript Multiple Constraints
+import { b } from "balid";
+
+const schema = b.and({},
+  b.string({ min: 5 }),
+  b.string({ max: 10 }),
+  b.string({ match: /^[a-z]+$/ })
+);
+
+schema.validate("hello"); // { valid: true, errors: [] }
+schema.validate("hi"); // { valid: false } - too short
+schema.validate("verylongstring"); // { valid: false } - too long
+schema.validate("Hello"); // { valid: false } - has uppercase
+```
+
+```typescript Custom Error Message
+import { b } from "balid";
+
+const schema = b.and(
+  { notMatchSchema: "Value must satisfy all conditions" },
+  b.number({ min: 10 }),
+  b.number({ max: 20 })
+);
+
+schema.validate(5);
+// { valid: false, errors: ["Value must satisfy all conditions"] }
+```
+</CodeGroup>
+
+## Composition Patterns
+
+Utility validators can be composed to create complex validation schemas:
+
+### Optional Union Type
+
+```typescript
+import { b } from "balid";
+
+const schema = b.optional(
+  b.or({}, b.string(), b.number())
+);
+
+schema.validate("hello"); // { valid: true }
+schema.validate(42); // { valid: true }
+schema.validate(undefined); // { valid: true }
+schema.validate(true); // { valid: false }
+```
+
+### Complex Object with Unions
+
+```typescript
+import { b } from "balid";
+
+const schema = b.object({
+  id: b.or({}, b.string(), b.number()),
+  status: b.or({}, 
+    b.string({ match: /^active$/ }),
+    b.string({ match: /^inactive$/ })
+  ),
+  metadata: b.optional(b.object({
+    tags: b.array(b.string())
+  }))
+});
+```
+
+### Array of Union Types
+
+```typescript
+import { b } from "balid";
+
+const schema = b.array(
+  b.or({},
+    b.string(),
+    b.number(),
+    b.object({ value: b.any() })
+  )
+);
+
+schema.validate(["text", 123, { value: true }]); // { valid: true }
+```

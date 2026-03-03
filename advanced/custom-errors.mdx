@@ -1,0 +1,514 @@
+---
+title: Custom error messages
+description: Learn how to provide custom error messages for validation failures in Balid
+---
+
+## Overview
+
+Balid allows you to customize error messages for every validation failure. Each validator type supports specific custom error options that let you provide clear, context-specific feedback to users.
+
+## Available custom error options
+
+All custom error options are defined in `types.ts:13-52`. Here's a complete reference:
+
+### Common options
+
+**`notExpectedType`** - Used when the input is not the expected type
+
+Available on: `boolean`, `number`, `string`, `object`, `array`
+
+### Number-specific options
+
+**`gratherThanExpected`** - Used when a number exceeds the maximum value
+
+**`lessThanExpected`** - Used when a number is below the minimum value
+
+### String-specific options
+
+**`lessThanExpected`** - Used when string length is below minimum
+
+**`gratherThanExpected`** - Used when string length exceeds maximum
+
+**`notMatchPattern`** - Used when string doesn't match the regex pattern
+
+### Object-specific options
+
+**`childNotMatch`** - Used when object properties don't match the schema
+
+### Array-specific options
+
+**`elementNotMatch`** - Used when array elements don't match the schema
+
+### Utility function options
+
+**`notMatchSchema`** - Used when validation fails
+
+Available on: `optional`, `or`, `and`
+
+## Default vs custom errors
+
+<Tip>
+Balid provides sensible default error messages for all validators. You only need to customize errors when you want more specific, user-friendly messages.
+</Tip>
+
+### Boolean validator
+
+<CodeGroup>
+```typescript Default error
+import { b } from "balid";
+
+const schema = b.boolean();
+
+schema.validate("true"); 
+// Returns: { valid: false, errors: ["Not a boolean"] }
+```
+
+```typescript Custom error
+import { b } from "balid";
+
+const schema = b.boolean({
+  notExpectedType: "Please provide a true or false value"
+});
+
+schema.validate("true"); 
+// Returns: { valid: false, errors: ["Please provide a true or false value"] }
+```
+</CodeGroup>
+
+### Number validator
+
+The number validator supports three custom error messages as seen in `validators.ts:39-59`:
+
+<CodeGroup>
+```typescript Default errors
+import { b } from "balid";
+
+const schema = b.number({ min: 10, max: 20 });
+
+schema.validate("abc");
+// Returns: { valid: false, errors: ["Not a number"] }
+
+schema.validate(5);
+// Returns: { valid: false, errors: ["Number is less than expected"] }
+
+schema.validate(25);
+// Returns: { valid: false, errors: ["Number is grather than expected"] }
+```
+
+```typescript Custom errors
+import { b } from "balid";
+
+const schema = b.number({
+  min: 10,
+  max: 20,
+  notExpectedType: "Age must be a number",
+  lessThanExpected: "Age must be at least 10",
+  gratherThanExpected: "Age cannot exceed 20"
+});
+
+schema.validate("abc");
+// Returns: { valid: false, errors: ["Age must be a number"] }
+
+schema.validate(5);
+// Returns: { valid: false, errors: ["Age must be at least 10"] }
+
+schema.validate(25);
+// Returns: { valid: false, errors: ["Age cannot exceed 20"] }
+```
+</CodeGroup>
+
+### String validator
+
+The string validator supports four custom error messages as seen in `validators.ts:61-86`:
+
+<CodeGroup>
+```typescript Default errors
+import { b } from "balid";
+
+const schema = b.string({ 
+  min: 3, 
+  max: 10, 
+  match: /^[a-z]+$/ 
+});
+
+schema.validate(123);
+// Returns: { valid: false, errors: ["Not a string"] }
+
+schema.validate("ab");
+// Returns: { valid: false, errors: ["String is less than expected"] }
+
+schema.validate("verylongstring");
+// Returns: { valid: false, errors: ["String is grather than expected"] }
+
+schema.validate("ABC");
+// Returns: { valid: false, errors: ["String does not match pattern"] }
+```
+
+```typescript Custom errors
+import { b } from "balid";
+
+const schema = b.string({
+  min: 3,
+  max: 10,
+  match: /^[a-z]+$/,
+  notExpectedType: "Username must be a string",
+  lessThanExpected: "Username must be at least 3 characters",
+  gratherThanExpected: "Username cannot exceed 10 characters",
+  notMatchPattern: "Username must contain only lowercase letters"
+});
+
+schema.validate(123);
+// Returns: { valid: false, errors: ["Username must be a string"] }
+
+schema.validate("ab");
+// Returns: { valid: false, errors: ["Username must be at least 3 characters"] }
+
+schema.validate("verylongstring");
+// Returns: { valid: false, errors: ["Username cannot exceed 10 characters"] }
+
+schema.validate("ABC");
+// Returns: { valid: false, errors: ["Username must contain only lowercase letters"] }
+```
+</CodeGroup>
+
+### Object validator
+
+The object validator provides detailed error messages with property paths as seen in `validators.ts:88-107`:
+
+<CodeGroup>
+```typescript Default error
+import { b } from "balid";
+
+const schema = b.object({
+  name: b.string(),
+  age: b.number()
+});
+
+schema.validate("not an object");
+// Returns: { valid: false, errors: ["Not an object"] }
+
+schema.validate({ name: "John", age: "thirty" });
+// Returns: { valid: false, errors: ["age: Not a number"] }
+```
+
+```typescript Custom error
+import { b } from "balid";
+
+const schema = b.object(
+  {
+    name: b.string(),
+    age: b.number()
+  },
+  { notExpectedType: "User data must be an object" }
+);
+
+schema.validate("not an object");
+// Returns: { valid: false, errors: ["User data must be an object"] }
+
+schema.validate({ name: "John", age: "thirty" });
+// Returns: { valid: false, errors: ["age: Not a number"] }
+```
+</CodeGroup>
+
+<Note>
+Object validation automatically prefixes child errors with the property name (e.g., "age: Not a number"). This helps identify exactly which property failed validation.
+</Note>
+
+### Array validator
+
+The array validator provides detailed error messages with element indexes as seen in `validators.ts:109-133`:
+
+<CodeGroup>
+```typescript Default error
+import { b } from "balid";
+
+const schema = b.array(b.number());
+
+schema.validate("not an array");
+// Returns: { valid: false, errors: ["Not an array"] }
+
+schema.validate([1, 2, "three", 4]);
+// Returns: { valid: false, errors: ["2: Not a number"] }
+```
+
+```typescript Custom error
+import { b } from "balid";
+
+const schema = b.array(
+  b.number(),
+  { notExpectedType: "Scores must be an array" }
+);
+
+schema.validate("not an array");
+// Returns: { valid: false, errors: ["Scores must be an array"] }
+
+schema.validate([1, 2, "three", 4]);
+// Returns: { valid: false, errors: ["2: Not a number"] }
+```
+</CodeGroup>
+
+<Note>
+Array validation automatically prefixes element errors with the array index (e.g., "2: Not a number"). This helps identify exactly which element failed validation.
+</Note>
+
+### Utility functions
+
+The `optional`, `or`, and `and` utilities support the `notMatchSchema` error option as seen in `validators.ts:137-184`:
+
+<CodeGroup>
+```typescript Optional - default
+import { b } from "balid";
+
+const schema = b.optional(b.string());
+
+schema.validate(123);
+// Returns: { valid: false, errors: ["Optional does not match schema"] }
+```
+
+```typescript Optional - custom
+import { b } from "balid";
+
+const schema = b.optional(
+  b.string(),
+  { notMatchSchema: "Bio must be a string if provided" }
+);
+
+schema.validate(123);
+// Returns: { valid: false, errors: ["Bio must be a string if provided"] }
+```
+
+```typescript Or - default
+import { b } from "balid";
+
+const schema = b.or({}, b.string(), b.number());
+
+schema.validate(true);
+// Returns: { valid: false, errors: ["Or does not match schema"] }
+```
+
+```typescript Or - custom
+import { b } from "balid";
+
+const schema = b.or(
+  { notMatchSchema: "Value must be a string or number" },
+  b.string(),
+  b.number()
+);
+
+schema.validate(true);
+// Returns: { valid: false, errors: ["Value must be a string or number"] }
+```
+
+```typescript And - custom
+import { b } from "balid";
+
+const schema = b.and(
+  { notMatchSchema: "Value must satisfy all conditions" },
+  b.string(),
+  b.string({ min: 5 })
+);
+
+schema.validate("abc");
+// Returns: { valid: false, errors: ["Value must satisfy all conditions"] }
+```
+</CodeGroup>
+
+## When to use custom errors
+
+<Accordion title="User-facing validation">
+When validating user input in forms or APIs, custom errors provide clear, actionable feedback:
+
+```typescript
+const passwordSchema = b.string({
+  min: 8,
+  max: 128,
+  match: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+  notExpectedType: "Password must be a string",
+  lessThanExpected: "Password must be at least 8 characters long",
+  gratherThanExpected: "Password cannot exceed 128 characters",
+  notMatchPattern: "Password must contain uppercase, lowercase, and numbers"
+});
+```
+</Accordion>
+
+<Accordion title="API validation">
+When validating API requests, custom errors help clients understand what went wrong:
+
+```typescript
+const apiRequestSchema = b.object(
+  {
+    userId: b.string({ notExpectedType: "userId must be a string" }),
+    limit: b.number({ 
+      min: 1, 
+      max: 100,
+      notExpectedType: "limit must be a number",
+      lessThanExpected: "limit must be at least 1",
+      gratherThanExpected: "limit cannot exceed 100"
+    })
+  },
+  { notExpectedType: "Request body must be a valid JSON object" }
+);
+```
+</Accordion>
+
+<Accordion title="Internationalization (i18n)">
+Custom errors make it easy to support multiple languages:
+
+```typescript
+const getEmailSchema = (locale: string) => {
+  const messages = {
+    en: {
+      notString: "Email must be a string",
+      notMatch: "Please enter a valid email address"
+    },
+    es: {
+      notString: "El correo electrónico debe ser una cadena",
+      notMatch: "Por favor ingrese una dirección de correo válida"
+    }
+  };
+
+  return b.string({
+    match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+    notExpectedType: messages[locale].notString,
+    notMatchPattern: messages[locale].notMatch
+  });
+};
+```
+</Accordion>
+
+## Best practices for error messages
+
+<Tip>
+Follow these guidelines to write effective custom error messages:
+</Tip>
+
+### Be specific and actionable
+
+<CodeGroup>
+```typescript Bad
+const schema = b.string({
+  min: 3,
+  lessThanExpected: "Invalid"
+});
+```
+
+```typescript Good
+const schema = b.string({
+  min: 3,
+  lessThanExpected: "Username must be at least 3 characters long"
+});
+```
+</CodeGroup>
+
+### Use consistent tone
+
+<CodeGroup>
+```typescript Inconsistent
+const schema = b.object({
+  email: b.string({
+    notExpectedType: "ERROR! Wrong type!"
+  }),
+  age: b.number({
+    notExpectedType: "Age should be a number"
+  })
+});
+```
+
+```typescript Consistent
+const schema = b.object({
+  email: b.string({
+    notExpectedType: "Email must be a string"
+  }),
+  age: b.number({
+    notExpectedType: "Age must be a number"
+  })
+});
+```
+</CodeGroup>
+
+### Include context when helpful
+
+<CodeGroup>
+```typescript Without context
+const schema = b.number({
+  min: 0,
+  max: 5,
+  gratherThanExpected: "Too high"
+});
+```
+
+```typescript With context
+const schema = b.number({
+  min: 0,
+  max: 5,
+  gratherThanExpected: "Rating must be between 0 and 5"
+});
+```
+</CodeGroup>
+
+### Keep messages concise
+
+<CodeGroup>
+```typescript Too verbose
+const schema = b.string({
+  notExpectedType: "The value you provided is not a string. Please ensure that you are providing a string value for this field."
+});
+```
+
+```typescript Concise
+const schema = b.string({
+  notExpectedType: "Value must be a string"
+});
+```
+</CodeGroup>
+
+<Warning>
+Avoid technical jargon in user-facing error messages. Messages like "Type assertion failed" are confusing for non-technical users. Instead, use plain language like "Please enter a valid email address".
+</Warning>
+
+## Error handling patterns
+
+Here's a complete example showing how to handle validation errors in a real application:
+
+```typescript
+import { b } from "balid";
+
+const userSchema = b.object({
+  email: b.string({
+    match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+    notExpectedType: "Email must be a string",
+    notMatchPattern: "Please enter a valid email address"
+  }),
+  age: b.number({
+    min: 18,
+    max: 120,
+    notExpectedType: "Age must be a number",
+    lessThanExpected: "You must be at least 18 years old",
+    gratherThanExpected: "Please enter a valid age"
+  }),
+  preferences: b.optional(
+    b.object({
+      newsletter: b.boolean({
+        notExpectedType: "Newsletter preference must be true or false"
+      })
+    }),
+    { notMatchSchema: "Preferences must be a valid object" }
+  )
+});
+
+// API endpoint example
+app.post("/api/users", (req, res) => {
+  const validation = userSchema.validate(req.body);
+  
+  if (!validation.valid) {
+    return res.status(400).json({
+      success: false,
+      errors: validation.errors
+    });
+  }
+  
+  // Proceed with valid data
+  const user = createUser(req.body);
+  res.json({ success: true, user });
+});
+```

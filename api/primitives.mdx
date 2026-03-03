@@ -1,0 +1,274 @@
+---
+title: 'Primitive Validators'
+description: 'Validators for primitive types: any, boolean, string, and number'
+---
+
+## b.any()
+
+Accepts any value without validation.
+
+```typescript validators.ts:21-27
+any: () => {
+  return {
+    validate(input) {
+      return { valid: true, errors: [] };
+    },
+  };
+}
+```
+
+### Usage
+
+```typescript
+import { b } from "balid";
+
+const schema = b.any();
+
+schema.validate(200); // { valid: true, errors: [] }
+schema.validate({ foo: "bar" }); // { valid: true, errors: [] }
+```
+
+---
+
+## b.boolean()
+
+Validates that the input is a boolean value.
+
+```typescript
+b.boolean(options?: DefaultOptions)
+```
+
+### Parameters
+
+<ParamField path="options" type="DefaultOptions" optional>
+  Configuration options for the boolean validator.
+  
+  <Expandable title="DefaultOptions">
+    <ParamField path="notExpectedType" type="string" optional>
+      Custom error message when input is not a boolean. Default: `"Not a boolean"`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Implementation
+
+```typescript validators.ts:28-38
+boolean: (options?: DefaultOptions) => {
+  return {
+    validate(input: any) {
+      const valid = handle();
+
+      check(valid, typeof input === "boolean", options?.notExpectedType ?? "Not a boolean");
+
+      return valid;
+    },
+  };
+}
+```
+
+### Usage
+
+```typescript
+import { b } from "balid";
+
+const schema = b.boolean();
+
+schema.validate(false); // { valid: true, errors: [] }
+schema.validate("false"); // { valid: false, errors: ["Not a boolean"] }
+```
+
+---
+
+## b.string()
+
+Validates that the input is a string with optional length and pattern constraints.
+
+```typescript
+b.string(options?: StringOptions)
+```
+
+### Parameters
+
+<ParamField path="options" type="StringOptions" optional>
+  Configuration options for the string validator.
+  
+  <Expandable title="StringOptions">
+    <ParamField path="min" type="number" optional>
+      Minimum string length (inclusive).
+    </ParamField>
+    
+    <ParamField path="max" type="number" optional>
+      Maximum string length (inclusive).
+    </ParamField>
+    
+    <ParamField path="match" type="RegExp" optional>
+      Regular expression pattern that the string must match.
+    </ParamField>
+    
+    <ParamField path="notExpectedType" type="string" optional>
+      Custom error message when input is not a string. Default: `"Not a string"`
+    </ParamField>
+    
+    <ParamField path="lessThanExpected" type="string" optional>
+      Custom error message when string is shorter than `min`. Default: `"String is less than expected"`
+    </ParamField>
+    
+    <ParamField path="gratherThanExpected" type="string" optional>
+      Custom error message when string is longer than `max`. Default: `"String is grather than expected"`
+    </ParamField>
+    
+    <ParamField path="notMatchPattern" type="string" optional>
+      Custom error message when string doesn't match pattern. Default: `"String does not match pattern"`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Implementation
+
+```typescript validators.ts:61-87
+string: (options?: StringOptions) => {
+  let min = options?.min ?? undefined;
+  let max = options?.max ?? undefined;
+  let match = options?.match ?? undefined;
+
+  return {
+    validate(input: any) {
+      const valid = handle();
+
+      check(valid, typeof input === "string", options?.notExpectedType ?? "Not a string");
+
+      if (min != undefined) {
+        check(valid, String(input).length >= min, options?.lessThanExpected ?? "String is less than expected");
+      }
+
+      if (max != undefined) {
+        check(valid, String(input).length <= max, options?.gratherThanExpected ?? "String is grather than expected");
+      }
+
+      if (match != undefined) {
+        check(valid, match.test(input), options?.notMatchPattern ?? "String does not match pattern");
+      }
+
+      return valid;
+    },
+  };
+}
+```
+
+### Usage
+
+<CodeGroup>
+```typescript Basic
+import { b } from "balid";
+
+const schema = b.string();
+
+schema.validate("Hello World"); // { valid: true, errors: [] }
+```
+
+```typescript Min/Max Length
+import { b } from "balid";
+
+const minMaxSchema = b.string({ min: 2, max: 10 });
+
+minMaxSchema.validate("a"); // { valid: false, errors: ["String is less than expected"] }
+minMaxSchema.validate("hello"); // { valid: true, errors: [] }
+```
+
+```typescript Pattern Matching
+import { b } from "balid";
+
+const matchSchema = b.string({ match: /hello/ });
+
+matchSchema.validate("hello"); // { valid: true, errors: [] }
+matchSchema.validate("world"); // { valid: false, errors: ["String does not match pattern"] }
+```
+</CodeGroup>
+
+---
+
+## b.number()
+
+Validates that the input is a number with optional min/max constraints.
+
+```typescript
+b.number(options?: NumberOptions)
+```
+
+### Parameters
+
+<ParamField path="options" type="NumberOptions" optional>
+  Configuration options for the number validator.
+  
+  <Expandable title="NumberOptions">
+    <ParamField path="min" type="number" optional>
+      Minimum value (inclusive).
+    </ParamField>
+    
+    <ParamField path="max" type="number" optional>
+      Maximum value (inclusive).
+    </ParamField>
+    
+    <ParamField path="notExpectedType" type="string" optional>
+      Custom error message when input is not a number. Default: `"Not a number"`
+    </ParamField>
+    
+    <ParamField path="gratherThanExpected" type="string" optional>
+      Custom error message when number exceeds `max`. Default: `"Number is grather than expected"`
+    </ParamField>
+    
+    <ParamField path="lessThanExpected" type="string" optional>
+      Custom error message when number is below `min`. Default: `"Number is less than expected"`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Implementation
+
+```typescript validators.ts:39-60
+number: (options?: NumberOptions) => {
+  let min = options?.min ?? undefined;
+  let max = options?.max ?? undefined;
+
+  return {
+    validate(input: any) {
+      const valid = handle();
+
+      check(valid, typeof input === "number", options?.notExpectedType ?? "Not a number");
+
+      if (min != undefined) {
+        check(valid, input >= min, options?.gratherThanExpected ?? "Number is less than expected");
+      }
+
+      if (max != undefined) {
+        check(valid, input <= max, options?.lessThanExpected ?? "Number is grather than expected");
+      }
+
+      return valid;
+    },
+  };
+}
+```
+
+### Usage
+
+<CodeGroup>
+```typescript Basic
+import { b } from "balid";
+
+const schema = b.number();
+
+schema.validate(123); // { valid: true, errors: [] }
+schema.validate("123"); // { valid: false, errors: ["Not a number"] }
+```
+
+```typescript Min/Max Range
+import { b } from "balid";
+
+const minMaxSchema = b.number({ min: 10, max: 20 });
+
+minMaxSchema.validate(1); // { valid: false, errors: ["Number is less than expected"] }
+minMaxSchema.validate(25); // { valid: false, errors: ["Number is grather than expected"] }
+minMaxSchema.validate(15); // { valid: true, errors: [] }
+```
+</CodeGroup>

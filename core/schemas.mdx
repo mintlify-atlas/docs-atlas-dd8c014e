@@ -1,0 +1,237 @@
+---
+title: Schemas
+description: Learn how schemas work in Balid and how to create and compose them
+---
+
+## What is a schema?
+
+In Balid, a schema is an object that defines the expected structure and type of data. Every schema implements the `Schema` type from `types.ts:1-3`:
+
+```typescript
+export type Schema = {
+    validate: (input: any) => Valid;
+};
+```
+
+A schema is simply an object with a `validate` method that takes any input and returns a validation result. This simple interface makes schemas composable and easy to work with.
+
+## Creating schemas
+
+Schemas are created using the `b` object, which provides validator functions for different data types. All validators are exported from `index.ts:5-8`:
+
+```typescript
+const b = {
+    ...types,
+    ...util,
+};
+```
+
+### Basic type schemas
+
+Balid provides validators for primitive types:
+
+```typescript
+import { b } from "balid";
+
+// String schema
+const nameSchema = b.string();
+
+// Number schema
+const ageSchema = b.number();
+
+// Boolean schema
+const isActiveSchema = b.boolean();
+
+// Any type schema
+const dataSchema = b.any();
+```
+
+<Note>
+The `b.any()` validator always returns `{ valid: true, errors: [] }` regardless of input (see `validators.ts:21-27`).
+</Note>
+
+### Schemas with constraints
+
+Many validators accept options to add constraints:
+
+```typescript
+// String with length constraints
+const usernameSchema = b.string({ 
+    min: 3, 
+    max: 20 
+});
+
+// String with pattern matching
+const emailSchema = b.string({ 
+    match: /^[^@]+@[^@]+\.[^@]+$/ 
+});
+
+// Number with range constraints
+const scoreSchema = b.number({ 
+    min: 0, 
+    max: 100 
+});
+```
+
+The constraints are enforced in the validator logic (`validators.ts:61-86` for strings, `validators.ts:39-59` for numbers).
+
+## Schema composition
+
+Balid's power comes from composing simple schemas into complex ones.
+
+### Object schemas
+
+Object schemas validate structured data by composing multiple schemas:
+
+```typescript
+const userSchema = b.object({
+    name: b.string({ min: 1 }),
+    age: b.number({ min: 0 }),
+    email: b.string({ match: /^[^@]+@[^@]+\.[^@]+$/ }),
+    isActive: b.boolean()
+});
+
+userSchema.validate({
+    name: "John Doe",
+    age: 30,
+    email: "john@example.com",
+    isActive: true
+});
+```
+
+The object validator iterates through each property and validates it against its schema (`validators.ts:97-103`).
+
+### Array schemas
+
+Array schemas validate that all elements match a single schema:
+
+```typescript
+// Array of strings
+const tagsSchema = b.array(b.string());
+
+// Array of objects
+const usersSchema = b.array(
+    b.object({
+        name: b.string(),
+        age: b.number()
+    })
+);
+
+tagsSchema.validate(["typescript", "validation", "schema"]);
+```
+
+The array validator checks each element in the array (`validators.ts:120-128`).
+
+<Accordion title="Advanced array validation example">
+```typescript
+// Nested array with constraints
+const scoresSchema = b.array(
+    b.number({ min: 0, max: 100 })
+);
+
+scoresSchema.validate([85, 92, 78, 95]);
+// Returns: { valid: true, errors: [] }
+
+scoresSchema.validate([85, 150, 78]);
+// Returns: { valid: false, errors: ["1: Number is grather than expected"] }
+```
+</Accordion>
+
+### Utility schemas
+
+Balid provides utility functions for advanced composition:
+
+#### Optional
+
+Makes a schema optional (accepts `undefined`):
+
+```typescript
+const schema = b.optional(b.string());
+
+schema.validate("hello");     // { valid: true, errors: [] }
+schema.validate(undefined);   // { valid: true, errors: [] }
+schema.validate(123);         // { valid: false, errors: [...] }
+```
+
+Implementation: `validators.ts:137-146`
+
+#### Or (union types)
+
+Validates if input matches any of the provided schemas:
+
+```typescript
+const schema = b.or(
+    { notMatchSchema: "Must be string or number" },
+    b.string(),
+    b.number()
+);
+
+schema.validate("hello");  // { valid: true, errors: [] }
+schema.validate(42);       // { valid: true, errors: [] }
+schema.validate(true);     // { valid: false, errors: [...] }
+```
+
+Implementation: `validators.ts:148-165`
+
+#### And (intersection types)
+
+Validates if input matches all provided schemas:
+
+```typescript
+const schema = b.and(
+    { notMatchSchema: "Must satisfy all conditions" },
+    b.string(),
+    b.string({ min: 5 })
+);
+
+schema.validate("hello world");  // { valid: true, errors: [] }
+schema.validate("hi");           // { valid: false, errors: [...] }
+```
+
+Implementation: `validators.ts:167-184`
+
+## TypeScript type safety
+
+Balid is built with TypeScript and provides full type safety. The core types are defined in `types.ts`:
+
+- `Schema` - The base schema interface
+- `Valid` - The validation result type
+- `DefaultOptions`, `StringOptions`, `NumberOptions`, etc. - Configuration types for validators
+
+<Tip>
+All validator options support custom error messages. For example, `b.string({ notExpectedType: "Custom error message" })` allows you to override default error messages.
+</Tip>
+
+## Real-world example
+
+Here's a complete example combining multiple schema composition techniques:
+
+```typescript
+import { b } from "balid";
+
+const articleSchema = b.object({
+    title: b.string({ min: 1, max: 200 }),
+    content: b.string({ min: 10 }),
+    author: b.object({
+        name: b.string(),
+        email: b.string({ match: /^[^@]+@[^@]+\.[^@]+$/ })
+    }),
+    tags: b.array(b.string()),
+    published: b.boolean(),
+    views: b.optional(b.number({ min: 0 }))
+});
+
+const result = articleSchema.validate({
+    title: "Understanding Balid Schemas",
+    content: "Balid is a lightweight TypeScript schema validator...",
+    author: {
+        name: "Jane Developer",
+        email: "jane@dev.com"
+    },
+    tags: ["typescript", "validation"],
+    published: true,
+    views: undefined
+});
+```
+
+This example demonstrates object composition, nested objects, arrays, optional fields, and constraint validation all working together.

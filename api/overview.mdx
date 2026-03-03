@@ -1,0 +1,126 @@
+---
+title: 'API Overview'
+description: 'Complete reference for Balid schema validator API'
+---
+
+## Main Export
+
+Balid exports a single object `b` that contains all validators:
+
+```typescript
+import { b } from "balid";
+```
+
+The `b` object combines both primitive type validators and utility validators:
+
+```typescript
+const b = {
+  // Primitive validators
+  any,
+  boolean,
+  string,
+  number,
+  object,
+  array,
+  
+  // Utility validators
+  optional,
+  or,
+  and,
+};
+```
+
+## Type Exports
+
+Balid exports the following TypeScript types:
+
+```typescript
+import { Schema, Valid, TypeParams, DefaultOptions, NumberOptions, StringOptions, ObjectOptions, ArrayOptions, OptionalOptions, OrOptions, AndOptions } from "balid";
+```
+
+### Core Types
+
+<ResponseField name="Schema" type="object">
+  Object with a `validate` method that accepts any input and returns a `Valid` result.
+  
+  ```typescript
+  type Schema = {
+    validate: (input: any) => Valid;
+  };
+  ```
+</ResponseField>
+
+<ResponseField name="Valid" type="object">
+  Validation result containing a boolean flag and array of error messages.
+  
+  ```typescript
+  type Valid = {
+    valid: boolean;
+    errors: string[];
+  };
+  ```
+</ResponseField>
+
+<ResponseField name="TypeParams" type="union">
+  Function type for validators that accept schemas.
+  
+  ```typescript
+  type TypeParams = ((schema?: Schema) => Schema) | ((...schemas: Schema[]) => Schema);
+  ```
+</ResponseField>
+
+## How to Use
+
+All validators return a `Schema` object with a `validate` method:
+
+```typescript
+import { b } from "balid";
+
+const schema = b.string();
+const result = schema.validate("hello");
+// { valid: true, errors: [] }
+```
+
+Validation results always include:
+- `valid`: boolean indicating if validation passed
+- `errors`: array of error messages (empty if valid)
+
+## Quick Reference
+
+| Validator | Description | Options |
+|-----------|-------------|----------|
+| `b.any()` | Accepts any value | None |
+| `b.boolean(options?)` | Validates boolean values | `DefaultOptions` |
+| `b.string(options?)` | Validates strings with optional constraints | `StringOptions` |
+| `b.number(options?)` | Validates numbers with optional constraints | `NumberOptions` |
+| `b.object(schema?, options?)` | Validates objects against a schema | `ObjectOptions` |
+| `b.array(schema?, options?)` | Validates arrays with optional element schema | `ArrayOptions` |
+| `b.optional(schema?, options?)` | Makes a schema optional (undefined allowed) | `OptionalOptions` |
+| `b.or(options, ...schemas)` | Validates against at least one schema | `OrOptions` |
+| `b.and(options, ...schemas)` | Validates against all schemas | `AndOptions` |
+
+## Error Messages
+
+All validators support custom error messages through their options:
+
+```typescript
+const schema = b.string({ 
+  notExpectedType: "Custom error: not a string" 
+});
+
+schema.validate(123);
+// { valid: false, errors: ["Custom error: not a string"] }
+```
+
+For nested structures (objects and arrays), error paths are automatically prefixed:
+
+```typescript
+const schema = b.object({
+  user: b.object({
+    name: b.string()
+  })
+});
+
+schema.validate({ user: { name: 123 } });
+// { valid: false, errors: ["user: name: Not a string"] }
+```

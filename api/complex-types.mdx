@@ -1,0 +1,293 @@
+---
+title: 'Complex Type Validators'
+description: 'Validators for complex types: objects and arrays with nested validation'
+---
+
+## b.object()
+
+Validates that the input is an object and optionally validates its properties against a schema.
+
+```typescript
+b.object(schema?: object, options?: ObjectOptions)
+```
+
+### Parameters
+
+<ParamField path="schema" type="object" optional>
+  An object where each property is a validator schema. Each property in the input will be validated against the corresponding schema.
+  
+  ```typescript
+  const schema = b.object({
+    name: b.string(),
+    age: b.number()
+  });
+  ```
+</ParamField>
+
+<ParamField path="options" type="ObjectOptions" optional>
+  Configuration options for the object validator.
+  
+  <Expandable title="ObjectOptions">
+    <ParamField path="notExpectedType" type="string" optional>
+      Custom error message when input is not an object. Default: `"Not an object"`
+    </ParamField>
+    
+    <ParamField path="childNotMatch" type="string" optional>
+      Custom error message for child property validation failures.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Implementation
+
+```typescript validators.ts:88-108
+object: (schema?: object, options?: ObjectOptions) => {
+  return {
+    validate(input: any) {
+      let valid = handle();
+
+      check(valid, typeof input === "object", options?.notExpectedType ?? "Not an object");
+
+      const entries = schema ? Object.keys(schema) : [];
+
+      for (const key of entries) {
+        const validateKey: Valid = schema[key].validate(input[key]);
+
+        check(valid, validateKey.valid);
+
+        valid.errors.push(...validateKey.errors.map((error) => key + ": " + error));
+      }
+
+      return valid;
+    },
+  };
+}
+```
+
+### Error Path Formatting
+
+For nested objects, errors are prefixed with the property path:
+
+```typescript
+const schema = b.object({
+  user: b.object({
+    profile: b.object({
+      name: b.string()
+    })
+  })
+});
+
+schema.validate({ user: { profile: { name: 123 } } });
+// { valid: false, errors: ["user: profile: name: Not a string"] }
+```
+
+Each level adds its key to the error path, separated by `": "`.
+
+### Usage
+
+<CodeGroup>
+```typescript Basic Object
+import { b } from "balid";
+
+const schema = b.object({
+  name: b.string(),
+});
+
+schema.validate({ name: "John Doe" }); // { valid: true, errors: [] }
+```
+
+```typescript Nested Objects
+import { b } from "balid";
+
+const schema = b.object({
+  user: b.object({
+    name: b.string(),
+    age: b.number({ min: 0 })
+  }),
+  active: b.boolean()
+});
+
+const result = schema.validate({
+  user: {
+    name: "Jane",
+    age: 25
+  },
+  active: true
+});
+// { valid: true, errors: [] }
+```
+
+```typescript Validation Errors
+import { b } from "balid";
+
+const schema = b.object({
+  email: b.string({ match: /@/ }),
+  age: b.number({ min: 18 })
+});
+
+schema.validate({ email: "invalid", age: 16 });
+// {
+//   valid: false,
+//   errors: [
+//     "email: String does not match pattern",
+//     "age: Number is less than expected"
+//   ]
+// }
+```
+</CodeGroup>
+
+---
+
+## b.array()
+
+Validates that the input is an array and optionally validates each element against a schema.
+
+```typescript
+b.array(schema?: Schema, options?: ArrayOptions)
+```
+
+### Parameters
+
+<ParamField path="schema" type="Schema" optional>
+  A validator schema that each array element will be validated against.
+  
+  ```typescript
+  const schema = b.array(b.string());
+  ```
+</ParamField>
+
+<ParamField path="options" type="ArrayOptions" optional>
+  Configuration options for the array validator.
+  
+  <Expandable title="ArrayOptions">
+    <ParamField path="notExpectedType" type="string" optional>
+      Custom error message when input is not an array. Default: `"Not an array"`
+    </ParamField>
+    
+    <ParamField path="elementNotMatch" type="string" optional>
+      Custom error message for element validation failures.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Implementation
+
+```typescript validators.ts:109-133
+array: (schema?: Schema, options?: ArrayOptions) => {
+  return {
+    validate(input: any) {
+      let valid = handle();
+
+      check(valid, Array.isArray(input), options?.notExpectedType ?? "Not an array");
+
+      if (!valid.valid) {
+        return valid;
+      }
+
+      for (let i = 0; i < input.length; i++) {
+        const value = input[i];
+        
+        const validateValue = schema.validate(value);
+        
+        check(valid, validateValue.valid);
+      
+        valid.errors.push(...validateValue.errors.map((error) => i + ": " + error));
+      }
+
+      return valid;
+    },
+  };
+}
+```
+
+### Error Path Formatting
+
+For arrays, errors are prefixed with the element index:
+
+```typescript
+const schema = b.array(b.number({ min: 0 }));
+
+schema.validate([1, -5, 3, -2]);
+// {
+//   valid: false,
+//   errors: [
+//     "1: Number is less than expected",
+//     "3: Number is less than expected"
+//   ]
+// }
+```
+
+For nested arrays, indices are concatenated:
+
+```typescript
+const schema = b.array(b.array(b.string()));
+
+schema.validate([["a", "b"], ["c", 123]]);
+// { valid: false, errors: ["1: 1: Not a string"] }
+//                           ^  ^  error message
+//                           |  inner array index
+//                           outer array index
+```
+
+### Usage
+
+<CodeGroup>
+```typescript Basic Array
+import { b } from "balid";
+
+const schema = b.array(b.string());
+
+schema.validate(["John Doe"]); // { valid: true, errors: [] }
+```
+
+```typescript Array of Objects
+import { b } from "balid";
+
+const schema = b.array(
+  b.object({
+    id: b.number(),
+    name: b.string()
+  })
+);
+
+const result = schema.validate([
+  { id: 1, name: "Alice" },
+  { id: 2, name: "Bob" }
+]);
+// { valid: true, errors: [] }
+```
+
+```typescript Nested Arrays
+import { b } from "balid";
+
+const schema = b.array(b.array(b.number()));
+
+schema.validate([[1, 2], [3, 4]]); // { valid: true, errors: [] }
+schema.validate([[1, "2"], [3, 4]]);
+// { valid: false, errors: ["0: 1: Not a number"] }
+```
+
+```typescript Complex Nested Structure
+import { b } from "balid";
+
+const schema = b.object({
+  users: b.array(
+    b.object({
+      name: b.string(),
+      tags: b.array(b.string())
+    })
+  )
+});
+
+schema.validate({
+  users: [
+    { name: "Alice", tags: ["admin", "user"] },
+    { name: "Bob", tags: ["user", 123] }
+  ]
+});
+// {
+//   valid: false,
+//   errors: ["users: 1: tags: 1: Not a string"]
+// }
+```
+</CodeGroup>

@@ -1,0 +1,734 @@
+---
+title: Best practices
+description: Learn best practices for using Balid effectively in your projects
+---
+
+## Overview
+
+This guide covers best practices for using Balid, including schema organization, error handling, performance optimization, and common patterns based on Balid's architecture.
+
+## Schema organization and reusability
+
+### Create reusable schema components
+
+Define common schemas once and reuse them throughout your application:
+
+```typescript
+import { b } from "balid";
+
+// Define reusable primitives
+const emailSchema = b.string({
+  match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  notExpectedType: "Email must be a string",
+  notMatchPattern: "Please enter a valid email address"
+});
+
+const positiveNumberSchema = b.number({
+  min: 0,
+  notExpectedType: "Must be a number",
+  lessThanExpected: "Must be a positive number"
+});
+
+const idSchema = b.string({
+  match: /^[a-f0-9]{24}$/,
+  notMatchPattern: "Invalid ID format"
+});
+
+// Compose into larger schemas
+const userSchema = b.object({
+  id: idSchema,
+  email: emailSchema,
+  age: positiveNumberSchema
+});
+
+const productSchema = b.object({
+  id: idSchema,
+  name: b.string({ min: 1 }),
+  price: positiveNumberSchema,
+  stock: positiveNumberSchema
+});
+```
+
+<Tip>
+Reusing schemas ensures consistency across your application and makes updates easier. If you need to change email validation, you only need to update it in one place.
+</Tip>
+
+### Organize schemas by domain
+
+Group related schemas into modules:
+
+```typescript
+// schemas/user.ts
+import { b } from "balid";
+import { emailSchema } from "./common";
+
+export const createUserSchema = b.object({
+  email: emailSchema,
+  password: b.string({ min: 8, max: 128 }),
+  age: b.number({ min: 18 })
+});
+
+export const updateUserSchema = b.object({
+  email: b.optional(emailSchema),
+  age: b.optional(b.number({ min: 18 }))
+});
+
+export const userResponseSchema = b.object({
+  id: b.string(),
+  email: emailSchema,
+  age: b.number(),
+  createdAt: b.string()
+});
+```
+
+```typescript
+// schemas/product.ts
+import { b } from "balid";
+import { positiveNumberSchema } from "./common";
+
+export const createProductSchema = b.object({
+  name: b.string({ min: 1, max: 200 }),
+  price: positiveNumberSchema,
+  stock: positiveNumberSchema
+});
+
+export const updateProductSchema = b.object({
+  name: b.optional(b.string({ min: 1, max: 200 })),
+  price: b.optional(positiveNumberSchema),
+  stock: b.optional(positiveNumberSchema)
+});
+```
+
+### Use configuration objects
+
+Define option configurations separately for better maintainability:
+
+```typescript
+import { StringOptions, NumberOptions } from "balid";
+
+// Define configurations
+const usernameOptions: StringOptions = {
+  min: 3,
+  max: 20,
+  match: /^[a-zA-Z0-9_]+$/,
+  notExpectedType: "Username must be a string",
+  lessThanExpected: "Username must be at least 3 characters",
+  gratherThanExpected: "Username cannot exceed 20 characters",
+  notMatchPattern: "Username can only contain letters, numbers, and underscores"
+};
+
+const ageOptions: NumberOptions = {
+  min: 0,
+  max: 120,
+  notExpectedType: "Age must be a number",
+  lessThanExpected: "Age cannot be negative",
+  gratherThanExpected: "Please enter a valid age"
+};
+
+// Use in schemas
+const schema = b.object({
+  username: b.string(usernameOptions),
+  age: b.number(ageOptions)
+});
+```
+
+## Error handling patterns
+
+### Check validation before processing
+
+Always validate data before using it in your application logic:
+
+```typescript
+import { b, Valid } from "balid";
+
+const userSchema = b.object({
+  email: b.string(),
+  age: b.number()
+});
+
+function createUser(data: unknown) {
+  // Validate first
+  const validation = userSchema.validate(data);
+  
+  if (!validation.valid) {
+    // Handle errors before processing
+    console.error("Validation failed:", validation.errors);
+    return null;
+  }
+  
+  // Safe to use data
+  return saveToDatabase(data);
+}
+```
+
+### Provide detailed error context
+
+Take advantage of Balid's automatic error prefixing for objects and arrays (see `validators.ts:98-127`):
+
+```typescript
+import { b } from "balid";
+
+const orderSchema = b.object({
+  userId: b.string(),
+  items: b.array(
+    b.object({
+      productId: b.string(),
+      quantity: b.number({ min: 1 })
+    })
+  ),
+  totalAmount: b.number({ min: 0 })
+});
+
+const result = orderSchema.validate(invalidData);
+
+if (!result.valid) {
+  // Errors will be prefixed with field names:
+  // ["userId: Not a string", "items: 0: quantity: Number is less than expected"]
+  console.error(result.errors);
+}
+```
+
+<Note>
+Balid automatically prefixes object property errors with the property name (e.g., "email: Not a string") and array element errors with the index (e.g., "0: Not a number"). This helps you identify exactly where validation failed.
+</Note>
+
+### Create custom error handlers
+
+Build error handlers tailored to your application needs:
+
+```typescript
+import { Valid } from "balid";
+
+class ValidationError extends Error {
+  constructor(
+    message: string,
+    public errors: string[],
+    public statusCode: number = 400
+  ) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
+function validateOrThrow(validation: Valid, context: string = "Validation"): void {
+  if (!validation.valid) {
+    throw new ValidationError(
+      `${context} failed`,
+      validation.errors,
+      400
+    );
+  }
+}
+
+// Usage
+try {
+  const validation = userSchema.validate(data);
+  validateOrThrow(validation, "User creation");
+  // Proceed with valid data
+} catch (error) {
+  if (error instanceof ValidationError) {
+    console.error(`${error.message}:`, error.errors);
+  }
+}
+```
+
+### Handle errors in API responses
+
+Provide consistent error responses in your APIs:
+
+```typescript
+import express, { Request, Response } from "express";
+import { Schema } from "balid";
+
+function validateMiddleware(schema: Schema) {
+  return (req: Request, res: Response, next: Function) => {
+    const validation = schema.validate(req.body);
+    
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: validation.errors
+      });
+    }
+    
+    next();
+  };
+}
+
+app.post("/api/users", validateMiddleware(userSchema), (req, res) => {
+  // Request body is valid
+  const user = createUser(req.body);
+  res.json({ success: true, data: user });
+});
+```
+
+## Performance considerations
+
+### Reuse schema instances
+
+Create schemas once and reuse them instead of recreating on every validation:
+
+<CodeGroup>
+```typescript Bad - creates schema on every call
+function validateUser(data: unknown) {
+  // Schema created every time
+  const schema = b.object({
+    email: b.string(),
+    age: b.number()
+  });
+  
+  return schema.validate(data);
+}
+```
+
+```typescript Good - schema created once
+// Schema created once, reused many times
+const userSchema = b.object({
+  email: b.string(),
+  age: b.number()
+});
+
+function validateUser(data: unknown) {
+  return userSchema.validate(data);
+}
+```
+</CodeGroup>
+
+### Validate early and fail fast
+
+Validate input as early as possible in your application flow:
+
+```typescript
+import { b } from "balid";
+
+// Validate at the entry point (e.g., API route)
+app.post("/api/users", (req, res) => {
+  // Validate immediately
+  const validation = userSchema.validate(req.body);
+  
+  if (!validation.valid) {
+    // Return early, don't process invalid data
+    return res.status(400).json({ errors: validation.errors });
+  }
+  
+  // Continue with valid data
+  const user = createUser(req.body);
+  res.json({ success: true, user });
+});
+```
+
+### Use specific validators
+
+Use the most specific validator possible instead of `b.any()`:
+
+<CodeGroup>
+```typescript Less performant
+const schema = b.object({
+  data: b.any()  // Accepts anything, no validation
+});
+```
+
+```typescript More performant
+const schema = b.object({
+  data: b.or(
+    {},
+    b.string(),
+    b.number(),
+    b.boolean()
+  )  // Specific types, better validation
+});
+```
+</CodeGroup>
+
+<Tip>
+The `b.any()` validator (see `validators.ts:21-27`) always returns `{ valid: true }` and performs no checks. Use it sparingly and prefer specific validators when possible.
+</Tip>
+
+### Optimize regex patterns
+
+Use efficient regex patterns for string validation:
+
+<CodeGroup>
+```typescript Inefficient
+const schema = b.string({
+  match: /^.*@.*\..*$/  // Inefficient pattern
+});
+```
+
+```typescript Efficient
+const schema = b.string({
+  match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/  // More efficient
+});
+```
+</CodeGroup>
+
+## Common patterns
+
+### Pattern: Optional fields with defaults
+
+Use optional validation and provide defaults in your application logic:
+
+```typescript
+import { b } from "balid";
+
+const configSchema = b.object({
+  port: b.optional(b.number({ min: 1, max: 65535 })),
+  host: b.optional(b.string()),
+  debug: b.optional(b.boolean())
+});
+
+function loadConfig(input: unknown) {
+  const validation = configSchema.validate(input);
+  
+  if (!validation.valid) {
+    throw new Error(`Invalid config: ${validation.errors.join(", ")}`);
+  }
+  
+  // Provide defaults for optional fields
+  return {
+    port: input.port ?? 3000,
+    host: input.host ?? "localhost",
+    debug: input.debug ?? false
+  };
+}
+```
+
+### Pattern: Nested object validation
+
+Validate complex nested structures (see `validators.ts:88-107`):
+
+```typescript
+import { b } from "balid";
+
+const addressSchema = b.object({
+  street: b.string({ min: 1 }),
+  city: b.string({ min: 1 }),
+  zipCode: b.string({ match: /^\d{5}$/ }),
+  country: b.string({ min: 2, max: 2 })
+});
+
+const userSchema = b.object({
+  name: b.string({ min: 1 }),
+  email: b.string(),
+  address: addressSchema,  // Nested schema
+  billingAddress: b.optional(addressSchema)  // Optional nested schema
+});
+
+const result = userSchema.validate(data);
+
+if (!result.valid) {
+  // Errors will show the full path:
+  // ["address: city: String is less than expected"]
+  console.error(result.errors);
+}
+```
+
+### Pattern: Array of complex objects
+
+Validate arrays containing complex objects (see `validators.ts:109-133`):
+
+```typescript
+import { b } from "balid";
+
+const orderItemSchema = b.object({
+  productId: b.string(),
+  quantity: b.number({ min: 1 }),
+  price: b.number({ min: 0 })
+});
+
+const orderSchema = b.object({
+  orderId: b.string(),
+  items: b.array(orderItemSchema),
+  totalAmount: b.number({ min: 0 })
+});
+
+const result = orderSchema.validate(data);
+
+if (!result.valid) {
+  // Errors show array index and property path:
+  // ["items: 0: quantity: Number is less than expected"]
+  console.error(result.errors);
+}
+```
+
+### Pattern: Discriminated unions with `or`
+
+Validate data that can be one of several types (see `validators.ts:148-165`):
+
+```typescript
+import { b } from "balid";
+
+const paymentMethodSchema = b.or(
+  { notMatchSchema: "Invalid payment method" },
+  b.object({
+    type: b.string(),
+    cardNumber: b.string(),
+    expiryDate: b.string()
+  }),
+  b.object({
+    type: b.string(),
+    paypalEmail: b.string()
+  }),
+  b.object({
+    type: b.string(),
+    bankAccount: b.string()
+  })
+);
+
+const result = paymentMethodSchema.validate(data);
+```
+
+<Note>
+The `or` validator (see `validators.ts:148-165`) returns valid as soon as any schema matches. It only returns an error if none of the schemas match.
+</Note>
+
+### Pattern: Combining constraints with `and`
+
+Validate data that must satisfy multiple conditions (see `validators.ts:167-184`):
+
+```typescript
+import { b } from "balid";
+
+const strongPasswordSchema = b.and(
+  { notMatchSchema: "Password does not meet all requirements" },
+  b.string({ min: 8, max: 128 }),
+  b.string({ match: /[A-Z]/ }),  // Has uppercase
+  b.string({ match: /[a-z]/ }),  // Has lowercase
+  b.string({ match: /\d/ }),     // Has digit
+  b.string({ match: /[!@#$%^&*]/ })  // Has special char
+);
+
+const result = strongPasswordSchema.validate("weak");
+// Returns: { valid: false, errors: ["Password does not meet all requirements"] }
+```
+
+<Note>
+The `and` validator (see `validators.ts:167-184`) requires all schemas to match. It returns an error as soon as any schema fails.
+</Note>
+
+## When to use which validator
+
+### Use `any` sparingly
+
+<Accordion title="When to use b.any()">
+Use `b.any()` only when you genuinely accept any type of input:
+
+```typescript
+import { b } from "balid";
+
+const logEntrySchema = b.object({
+  level: b.string(),
+  message: b.string(),
+  metadata: b.any()  // Could be anything
+});
+```
+
+**Avoid using `b.any()` when:**
+- You know the possible types (use `b.or()` instead)
+- You need any validation at all (use specific validators)
+</Accordion>
+
+### Choose between `number` and `string` for IDs
+
+<Accordion title="Numeric IDs vs String IDs">
+```typescript
+import { b } from "balid";
+
+// For auto-increment database IDs
+const numericIdSchema = b.number({ min: 1 });
+
+// For UUIDs, MongoDB ObjectIDs, etc.
+const stringIdSchema = b.string({
+  match: /^[a-f0-9]{24}$/,  // MongoDB ObjectID
+  notMatchPattern: "Invalid ID format"
+});
+
+const uuidSchema = b.string({
+  match: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  notMatchPattern: "Invalid UUID format"
+});
+```
+</Accordion>
+
+### Use `optional` for truly optional fields
+
+<Accordion title="When to use b.optional()">
+```typescript
+import { b } from "balid";
+
+const userProfileSchema = b.object({
+  username: b.string(),  // Required
+  email: b.string(),     // Required
+  bio: b.optional(b.string()),  // Optional, can be undefined
+  website: b.optional(b.string({ match: /^https?:\/\// }))  // Optional with validation
+});
+
+const result = userProfileSchema.validate({
+  username: "john",
+  email: "john@example.com"
+  // bio and website omitted - this is valid
+});
+```
+
+**Note:** As seen in `validators.ts:137-146`, `b.optional()` accepts `undefined` or a value matching the schema. It does not accept `null`.
+</Accordion>
+
+### Use `or` for multiple valid types
+
+<Accordion title="When to use b.or()">
+Use `b.or()` when a field can be one of several different types:
+
+```typescript
+import { b } from "balid";
+
+// ID can be string or number
+const flexibleIdSchema = b.or(
+  { notMatchSchema: "ID must be a string or number" },
+  b.string(),
+  b.number()
+);
+
+// Date can be string (ISO format) or number (timestamp)
+const dateSchema = b.or(
+  { notMatchSchema: "Date must be ISO string or Unix timestamp" },
+  b.string({ match: /^\d{4}-\d{2}-\d{2}/ }),
+  b.number({ min: 0 })
+);
+```
+</Accordion>
+
+### Use `and` for combining constraints
+
+<Accordion title="When to use b.and()">
+Use `b.and()` when data must satisfy multiple independent conditions:
+
+```typescript
+import { b } from "balid";
+
+// Username must be valid format AND not in blocklist
+const usernameSchema = b.and(
+  { notMatchSchema: "Username requirements not met" },
+  b.string({ min: 3, max: 20 }),
+  b.string({ match: /^[a-zA-Z0-9_]+$/ })
+);
+
+// Price must be positive AND have at most 2 decimal places
+const priceSchema = b.and(
+  { notMatchSchema: "Invalid price format" },
+  b.number({ min: 0 }),
+  // Note: This is conceptual, Balid doesn't validate decimal places
+);
+```
+</Accordion>
+
+## Composition strategies
+
+### Build schemas incrementally
+
+Start with simple schemas and compose them into complex ones:
+
+```typescript
+import { b } from "balid";
+
+// Step 1: Define primitives
+const emailSchema = b.string({ match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ });
+const phoneSchema = b.string({ match: /^\+?[1-9]\d{1,14}$/ });
+
+// Step 2: Define contact schema
+const contactSchema = b.object({
+  email: emailSchema,
+  phone: b.optional(phoneSchema)
+});
+
+// Step 3: Define address schema
+const addressSchema = b.object({
+  street: b.string(),
+  city: b.string(),
+  country: b.string()
+});
+
+// Step 4: Compose into user schema
+const userSchema = b.object({
+  name: b.string(),
+  contact: contactSchema,
+  address: addressSchema
+});
+```
+
+### Share validation across domains
+
+Define common validation logic once:
+
+```typescript
+import { b } from "balid";
+
+// Common schemas
+const timestampSchema = b.number({ min: 0 });
+const idSchema = b.string({ match: /^[a-f0-9]{24}$/ });
+
+// Use across different domains
+const userSchema = b.object({
+  id: idSchema,
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema
+});
+
+const productSchema = b.object({
+  id: idSchema,
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema
+});
+
+const orderSchema = b.object({
+  id: idSchema,
+  userId: idSchema,
+  productId: idSchema,
+  createdAt: timestampSchema
+});
+```
+
+<Tip>
+This approach ensures consistency across your application and makes it easy to update validation rules globally.
+</Tip>
+
+### Extend base schemas
+
+Create variations of schemas by combining with additional fields:
+
+```typescript
+import { b } from "balid";
+
+// Base user schema
+const baseUserSchema = b.object({
+  email: b.string(),
+  name: b.string()
+});
+
+// For creation, require password
+const createUserSchema = b.object({
+  email: b.string(),
+  name: b.string(),
+  password: b.string({ min: 8 })
+});
+
+// For updates, make everything optional
+const updateUserSchema = b.object({
+  email: b.optional(b.string()),
+  name: b.optional(b.string()),
+  password: b.optional(b.string({ min: 8 }))
+});
+
+// For responses, add metadata
+const userResponseSchema = b.object({
+  id: b.string(),
+  email: b.string(),
+  name: b.string(),
+  createdAt: b.number(),
+  updatedAt: b.number()
+});
+```
+
+<Warning>
+Balid does not currently support schema extension or merging utilities. You'll need to define each schema variation explicitly, which can lead to some duplication.
+</Warning>

@@ -1,0 +1,650 @@
+---
+title: TypeScript integration
+description: Learn how to use Balid with TypeScript for type-safe schema validation
+---
+
+## Overview
+
+Balid is written in TypeScript and provides full type safety for your schemas. This guide covers how to leverage TypeScript's type system with Balid for better developer experience and code quality.
+
+## Type exports
+
+Balid exports several TypeScript types that you can use in your projects. All types are defined in `types.ts`:
+
+### Core types
+
+#### Schema
+
+The `Schema` type represents any Balid validator:
+
+```typescript
+export type Schema = {
+    validate: (input: any) => Valid;
+};
+```
+
+Use this type when passing schemas as parameters:
+
+```typescript
+import { Schema } from "balid";
+
+function validateAndLog(schema: Schema, data: any) {
+  const result = schema.validate(data);
+  console.log(result);
+  return result;
+}
+
+const stringSchema = b.string();
+validateAndLog(stringSchema, "hello");
+```
+
+#### Valid
+
+The `Valid` type represents the validation result:
+
+```typescript
+export type Valid = {
+    valid: boolean;
+    errors: string[];
+};
+```
+
+Use this type when handling validation results:
+
+```typescript
+import { Valid } from "balid";
+
+function handleValidation(result: Valid) {
+  if (!result.valid) {
+    console.error("Validation failed:", result.errors);
+    return false;
+  }
+  console.log("Validation passed");
+  return true;
+}
+
+const schema = b.number({ min: 0, max: 100 });
+const result = schema.validate(50);
+handleValidation(result);
+```
+
+#### TypeParams
+
+The `TypeParams` type represents validator constructor functions:
+
+```typescript
+export type TypeParams = ((schema?: Schema) => Schema) | ((...schemas: Schema[]) => Schema);
+```
+
+This is an advanced type primarily used internally by Balid.
+
+### Option types
+
+Balid exports types for all validator options, allowing you to create reusable option configurations:
+
+#### DefaultOptions
+
+```typescript
+export type DefaultOptions = {
+    notExpectedType?: string;
+};
+```
+
+Used by: `boolean`, `number`, `string`, `object`, `array`
+
+#### NumberOptions
+
+```typescript
+export type NumberOptions = DefaultOptions & {
+    min?: number;
+    max?: number;
+    gratherThanExpected?: string;
+    lessThanExpected?: string;
+};
+```
+
+Example usage:
+
+```typescript
+import { NumberOptions } from "balid";
+
+const ageOptions: NumberOptions = {
+  min: 0,
+  max: 120,
+  notExpectedType: "Age must be a number",
+  lessThanExpected: "Age cannot be negative",
+  gratherThanExpected: "Age must be less than 120"
+};
+
+const ageSchema = b.number(ageOptions);
+```
+
+#### StringOptions
+
+```typescript
+export type StringOptions = DefaultOptions & {
+    min?: number;
+    max?: number;
+    match?: RegExp;
+    lessThanExpected?: string;
+    gratherThanExpected?: string;
+    notMatchPattern?: string;
+};
+```
+
+Example usage:
+
+```typescript
+import { StringOptions } from "balid";
+
+const usernameOptions: StringOptions = {
+  min: 3,
+  max: 20,
+  match: /^[a-zA-Z0-9_]+$/,
+  notExpectedType: "Username must be a string",
+  lessThanExpected: "Username must be at least 3 characters",
+  gratherThanExpected: "Username cannot exceed 20 characters",
+  notMatchPattern: "Username can only contain letters, numbers, and underscores"
+};
+
+const usernameSchema = b.string(usernameOptions);
+```
+
+#### ObjectOptions
+
+```typescript
+export type ObjectOptions = DefaultOptions & {
+    childNotMatch?: string;
+};
+```
+
+Example usage:
+
+```typescript
+import { ObjectOptions } from "balid";
+
+const objectOptions: ObjectOptions = {
+  notExpectedType: "Data must be an object",
+  childNotMatch: "Object properties do not match schema"
+};
+
+const userSchema = b.object(
+  {
+    name: b.string(),
+    age: b.number()
+  },
+  objectOptions
+);
+```
+
+#### ArrayOptions
+
+```typescript
+export type ArrayOptions = DefaultOptions & {
+    elementNotMatch?: string;
+};
+```
+
+Example usage:
+
+```typescript
+import { ArrayOptions } from "balid";
+
+const arrayOptions: ArrayOptions = {
+  notExpectedType: "Tags must be an array",
+  elementNotMatch: "All tags must be strings"
+};
+
+const tagsSchema = b.array(b.string(), arrayOptions);
+```
+
+#### OptionalOptions
+
+```typescript
+export type OptionalOptions = {
+    notMatchSchema?: string;
+};
+```
+
+Example usage:
+
+```typescript
+import { OptionalOptions } from "balid";
+
+const optionalOptions: OptionalOptions = {
+  notMatchSchema: "Bio must be a string if provided"
+};
+
+const bioSchema = b.optional(b.string(), optionalOptions);
+```
+
+#### OrOptions
+
+```typescript
+export type OrOptions = {
+    notMatchSchema?: string;
+};
+```
+
+Example usage:
+
+```typescript
+import { OrOptions } from "balid";
+
+const orOptions: OrOptions = {
+  notMatchSchema: "Value must be either a string or a number"
+};
+
+const flexibleSchema = b.or(orOptions, b.string(), b.number());
+```
+
+#### AndOptions
+
+```typescript
+export type AndOptions = {
+    notMatchSchema?: string;
+};
+```
+
+Example usage:
+
+```typescript
+import { AndOptions } from "balid";
+
+const andOptions: AndOptions = {
+  notMatchSchema: "Value must satisfy all conditions"
+};
+
+const strictSchema = b.and(
+  andOptions,
+  b.string({ min: 5 }),
+  b.string({ match: /^[A-Z]/ })
+);
+```
+
+## Type inference
+
+<Note>
+While Balid provides runtime validation, it currently does not automatically infer TypeScript types from schemas. You'll need to define your TypeScript types separately.
+</Note>
+
+### Pattern: Define types alongside schemas
+
+The recommended approach is to define your TypeScript types alongside your Balid schemas:
+
+```typescript
+import { b } from "balid";
+
+// Define TypeScript type
+type User = {
+  email: string;
+  age: number;
+  isActive: boolean;
+};
+
+// Define matching Balid schema
+const userSchema = b.object({
+  email: b.string({
+    match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  }),
+  age: b.number({ min: 0, max: 120 }),
+  isActive: b.boolean()
+});
+
+// Use both in your application
+function createUser(data: unknown): User | null {
+  const validation = userSchema.validate(data);
+  
+  if (!validation.valid) {
+    console.error(validation.errors);
+    return null;
+  }
+  
+  // Now TypeScript knows data is a User
+  return data as User;
+}
+```
+
+### Pattern: Validated type helper
+
+Create a helper function to combine validation and type assertion:
+
+```typescript
+import { Schema, Valid } from "balid";
+
+type ValidationResult<T> = 
+  | { success: true; data: T }
+  | { success: false; errors: string[] };
+
+function validate<T>(schema: Schema, data: unknown): ValidationResult<T> {
+  const result = schema.validate(data);
+  
+  if (result.valid) {
+    return { success: true, data: data as T };
+  }
+  
+  return { success: false, errors: result.errors };
+}
+
+// Usage
+type Product = {
+  name: string;
+  price: number;
+};
+
+const productSchema = b.object({
+  name: b.string({ min: 1 }),
+  price: b.number({ min: 0 })
+});
+
+const result = validate<Product>(productSchema, inputData);
+
+if (result.success) {
+  // TypeScript knows result.data is Product
+  console.log(result.data.name);
+  console.log(result.data.price);
+} else {
+  console.error(result.errors);
+}
+```
+
+### Pattern: Type guards
+
+Create type guard functions that combine Balid validation with TypeScript type narrowing:
+
+```typescript
+import { b } from "balid";
+
+type ApiResponse = {
+  status: string;
+  data: any;
+};
+
+const apiResponseSchema = b.object({
+  status: b.string(),
+  data: b.any()
+});
+
+function isApiResponse(value: unknown): value is ApiResponse {
+  return apiResponseSchema.validate(value).valid;
+}
+
+// Usage
+function handleResponse(response: unknown) {
+  if (isApiResponse(response)) {
+    // TypeScript knows response is ApiResponse
+    console.log(response.status);
+    console.log(response.data);
+  } else {
+    console.error("Invalid API response");
+  }
+}
+```
+
+## Using Balid with TypeScript projects
+
+### Project setup
+
+Ensure your `tsconfig.json` includes proper module resolution:
+
+```json
+{
+  "compilerOptions": {
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true
+  }
+}
+```
+
+### API validation example
+
+Here's a complete example of using Balid in a TypeScript API:
+
+```typescript
+import { b, Schema, Valid } from "balid";
+import express, { Request, Response, NextFunction } from "express";
+
+// Define types
+type CreateUserRequest = {
+  email: string;
+  password: string;
+  age: number;
+};
+
+type User = {
+  id: string;
+  email: string;
+  age: number;
+};
+
+// Define schemas
+const createUserSchema = b.object({
+  email: b.string({
+    match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+    notExpectedType: "Email must be a string",
+    notMatchPattern: "Please enter a valid email address"
+  }),
+  password: b.string({
+    min: 8,
+    max: 128,
+    notExpectedType: "Password must be a string",
+    lessThanExpected: "Password must be at least 8 characters"
+  }),
+  age: b.number({
+    min: 18,
+    notExpectedType: "Age must be a number",
+    lessThanExpected: "You must be at least 18 years old"
+  })
+});
+
+// Validation middleware
+function validateRequest(schema: Schema) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const validation = schema.validate(req.body);
+    
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        errors: validation.errors
+      });
+    }
+    
+    next();
+  };
+}
+
+// Route handler
+const app = express();
+
+app.post(
+  "/api/users",
+  validateRequest(createUserSchema),
+  (req: Request, res: Response) => {
+    // At this point, we know req.body matches the schema
+    const userData = req.body as CreateUserRequest;
+    
+    // Create user logic
+    const user: User = {
+      id: generateId(),
+      email: userData.email,
+      age: userData.age
+    };
+    
+    res.json({ success: true, user });
+  }
+);
+```
+
+## Type safety benefits
+
+<Tip>
+Using Balid with TypeScript provides several benefits:
+</Tip>
+
+### Catch errors at development time
+
+```typescript
+import { NumberOptions } from "balid";
+
+// TypeScript will catch this typo
+const options: NumberOptions = {
+  min: 0,
+  max: 100,
+  graterThanExpected: "Too high"  // Error: Did you mean 'gratherThanExpected'?
+};
+```
+
+### Autocomplete for options
+
+Your IDE will provide autocomplete suggestions for all available options:
+
+```typescript
+import { StringOptions } from "balid";
+
+const options: StringOptions = {
+  // IDE suggests: min, max, match, notExpectedType, lessThanExpected, etc.
+};
+```
+
+### Reusable option configurations
+
+Define typed option configurations once and reuse them:
+
+```typescript
+import { StringOptions, NumberOptions } from "balid";
+
+// Define reusable configurations
+const emailOptions: StringOptions = {
+  match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  notExpectedType: "Must be a string",
+  notMatchPattern: "Invalid email address"
+};
+
+const positiveNumberOptions: NumberOptions = {
+  min: 0,
+  notExpectedType: "Must be a number",
+  lessThanExpected: "Must be positive"
+};
+
+// Use in multiple schemas
+const userSchema = b.object({
+  email: b.string(emailOptions),
+  age: b.number(positiveNumberOptions)
+});
+
+const contactSchema = b.object({
+  email: b.string(emailOptions),
+  priority: b.number(positiveNumberOptions)
+});
+```
+
+### Type-safe validation results
+
+```typescript
+import { Valid } from "balid";
+
+function handleValidation(result: Valid): void {
+  // TypeScript ensures you check both properties
+  if (result.valid) {
+    console.log("Success");
+  } else {
+    // TypeScript knows errors is string[]
+    result.errors.forEach(error => console.error(error));
+  }
+}
+```
+
+<Warning>
+Remember that TypeScript types are erased at runtime. Always use Balid validation for runtime checks, even if TypeScript types indicate the data should be valid.
+</Warning>
+
+## Advanced patterns
+
+### Generic validation function
+
+Create a generic function that validates and returns typed results:
+
+```typescript
+import { Schema } from "balid";
+
+class ValidationError extends Error {
+  constructor(public errors: string[]) {
+    super("Validation failed");
+  }
+}
+
+function validateOrThrow<T>(schema: Schema, data: unknown): T {
+  const result = schema.validate(data);
+  
+  if (!result.valid) {
+    throw new ValidationError(result.errors);
+  }
+  
+  return data as T;
+}
+
+// Usage
+type Config = {
+  port: number;
+  host: string;
+};
+
+const configSchema = b.object({
+  port: b.number({ min: 1, max: 65535 }),
+  host: b.string()
+});
+
+try {
+  const config = validateOrThrow<Config>(configSchema, process.env);
+  // TypeScript knows config is Config
+  console.log(`Server running on ${config.host}:${config.port}`);
+} catch (error) {
+  if (error instanceof ValidationError) {
+    console.error("Invalid configuration:", error.errors);
+  }
+}
+```
+
+### Schema registry
+
+Create a typed schema registry for organizing validation logic:
+
+```typescript
+import { Schema } from "balid";
+
+type SchemaRegistry = {
+  user: { schema: Schema; type: User };
+  product: { schema: Schema; type: Product };
+  order: { schema: Schema; type: Order };
+};
+
+const schemas: { [K in keyof SchemaRegistry]: Schema } = {
+  user: userSchema,
+  product: productSchema,
+  order: orderSchema
+};
+
+function validate<K extends keyof SchemaRegistry>(
+  schemaName: K,
+  data: unknown
+): SchemaRegistry[K]["type"] | null {
+  const result = schemas[schemaName].validate(data);
+  
+  if (!result.valid) {
+    console.error(result.errors);
+    return null;
+  }
+  
+  return data as SchemaRegistry[K]["type"];
+}
+
+// Usage with full type safety
+const user = validate("user", inputData);
+if (user) {
+  // TypeScript knows user is User
+  console.log(user.email);
+}
+```

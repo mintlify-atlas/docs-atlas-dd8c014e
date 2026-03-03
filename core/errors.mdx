@@ -1,0 +1,446 @@
+---
+title: Error handling
+description: Learn how Balid collects, formats, and returns validation errors
+---
+
+## Error structure
+
+Balid returns errors as part of the `Valid` type defined in `types.ts:7-10`:
+
+```typescript
+export type Valid = {
+    valid: boolean;
+    errors: string[];  // Array of error messages
+};
+```
+
+The `errors` field is always an array of strings:
+- Empty array `[]` when validation succeeds
+- Contains one or more error messages when validation fails
+
+## Default error messages
+
+Balid provides descriptive default error messages for each validator. These are defined inline in the validator implementations in `validators.ts`.
+
+### Type validation errors
+
+Each type validator has a default message for type mismatches:
+
+```typescript
+// Boolean (validators.ts:33)
+"Not a boolean"
+
+// Number (validators.ts:47)
+"Not a number"
+
+// String (validators.ts:70)
+"Not a string"
+
+// Object (validators.ts:93)
+"Not an object"
+
+// Array (validators.ts:114)
+"Not an array"
+```
+
+### Constraint validation errors
+
+**Number constraints** (`validators.ts:50, 54`):
+```typescript
+// When value < min
+"Number is less than expected"
+
+// When value > max
+"Number is grather than expected"
+```
+
+**String constraints** (`validators.ts:73, 77, 81`):
+```typescript
+// When length < min
+"String is less than expected"
+
+// When length > max
+"String is grather than expected"
+
+// When pattern doesn't match
+"String does not match pattern"
+```
+
+### Utility validator errors
+
+```typescript
+// Optional (validators.ts:142)
+"Optional does not match schema"
+
+// Or (validators.ts:163)
+"Or does not match schema"
+
+// And (validators.ts:176)
+"And does not match schema"
+```
+
+<Tip>
+All default error messages can be overridden using options. See the custom error messages section below.
+</Tip>
+
+## Custom error messages
+
+Every validator accepts options to customize error messages:
+
+### Basic type customization
+
+```typescript
+import { b } from "balid";
+
+const schema = b.string({ 
+    notExpectedType: "Please provide a text value" 
+});
+
+schema.validate(123);
+// Returns: { valid: false, errors: ["Please provide a text value"] }
+```
+
+### Constraint customization
+
+```typescript
+const ageSchema = b.number({ 
+    min: 0,
+    max: 120,
+    notExpectedType: "Age must be a number",
+    gratherThanExpected: "Age must be 120 or younger",
+    lessThanExpected: "Age cannot be negative"
+});
+
+ageSchema.validate(150);
+// Returns: { valid: false, errors: ["Age must be 120 or younger"] }
+
+ageSchema.validate(-5);
+// Returns: { valid: false, errors: ["Age cannot be negative"] }
+```
+
+### String validation customization
+
+```typescript
+const usernameSchema = b.string({
+    min: 3,
+    max: 20,
+    match: /^[a-zA-Z0-9_]+$/,
+    notExpectedType: "Username must be text",
+    lessThanExpected: "Username must be at least 3 characters",
+    gratherThanExpected: "Username cannot exceed 20 characters",
+    notMatchPattern: "Username can only contain letters, numbers, and underscores"
+});
+
+usernameSchema.validate("ab");
+// Returns: { valid: false, errors: ["Username must be at least 3 characters"] }
+
+usernameSchema.validate("user@name");
+// Returns: { valid: false, errors: ["Username can only contain letters, numbers, and underscores"] }
+```
+
+<Note>
+The option names follow the pattern: `notExpectedType`, `lessThanExpected`, `gratherThanExpected` (note: this is a typo in the source code), `notMatchPattern`, `notMatchSchema`.
+</Note>
+
+## How errors are collected
+
+Errors are collected using the internal `check` function (`validators.ts:10-18`):
+
+```typescript
+const check = (valid: Valid, check: boolean, errorMessage?: string) => {
+    if (!check) {
+        valid.valid = false;
+        errorMessage && valid.errors.push(errorMessage);
+    }
+    return;
+};
+```
+
+Each validation check:
+1. Tests a condition
+2. If the condition fails, sets `valid: false`
+3. Pushes the error message to the `errors` array
+
+### Multiple errors accumulate
+
+When multiple checks fail, all errors are collected:
+
+```typescript
+const schema = b.string({ 
+    min: 10, 
+    match: /^[A-Z]/ 
+});
+
+const result = schema.validate("hi");
+console.log(result);
+// Output: {
+//   valid: false,
+//   errors: [
+//     "String is less than expected",
+//     "String does not match pattern"
+//   ]
+// }
+```
+
+From the string validator (`validators.ts:72-82`), both the length check and pattern check fail:
+
+```typescript
+if (min != undefined) {
+    check(valid, String(input).length >= min, 
+          options?.lessThanExpected ?? "String is less than expected");
+}
+
+if (match != undefined) {
+    check(valid, match.test(input), 
+          options?.notMatchPattern ?? "String does not match pattern");
+}
+```
+
+## Nested error paths
+
+When validating objects and arrays, Balid prefixes errors with the path to the failing field.
+
+### Object error paths
+
+The object validator adds property names to error messages (`validators.ts:97-103`):
+
+```typescript
+for (const key of entries) {
+    const validateKey: Valid = schema[key].validate(input[key]);
+    
+    check(valid, validateKey.valid);
+    
+    // Prefix each error with the property name
+    valid.errors.push(...validateKey.errors.map((error) => key + ": " + error));
+}
+```
+
+**Example:**
+
+```typescript
+const userSchema = b.object({
+    name: b.string({ min: 1 }),
+    age: b.number({ min: 0 })
+});
+
+const result = userSchema.validate({
+    name: "",
+    age: -5
+});
+
+console.log(result.errors);
+// Output: [
+//   "name: String is less than expected",
+//   "age: Number is less than expected"
+// ]
+```
+
+### Array error paths
+
+The array validator prefixes errors with array indices (`validators.ts:120-128`):
+
+```typescript
+for (let i = 0; i < input.length; i++) {
+    const value = input[i];
+    const validateValue = schema.validate(value);
+    
+    check(valid, validateValue.valid);
+    
+    // Prefix each error with the array index
+    valid.errors.push(...validateValue.errors.map((error) => i + ": " + error));
+}
+```
+
+**Example:**
+
+```typescript
+const scoresSchema = b.array(b.number({ min: 0, max: 100 }));
+
+const result = scoresSchema.validate([85, -10, 150, 92]);
+
+console.log(result.errors);
+// Output: [
+//   "1: Number is less than expected",
+//   "2: Number is grather than expected"
+// ]
+```
+
+### Deeply nested paths
+
+For nested structures, paths are built up through composition:
+
+```typescript
+const companySchema = b.object({
+    name: b.string(),
+    employees: b.array(
+        b.object({
+            name: b.string({ min: 1 }),
+            email: b.string({ match: /@/ })
+        })
+    )
+});
+
+const result = companySchema.validate({
+    name: "Acme Corp",
+    employees: [
+        { name: "Alice", email: "alice@acme.com" },
+        { name: "", email: "invalid" },
+        { name: "Bob", email: "bob-acme.com" }
+    ]
+});
+
+console.log(result.errors);
+// Output: [
+//   "employees: 1: name: String is less than expected",
+//   "employees: 1: email: String does not match pattern",
+//   "employees: 2: email: String does not match pattern"
+// ]
+```
+
+The path composition happens because:
+1. The object validator adds "employees: " prefix
+2. The array validator adds "1: " and "2: " for failing elements
+3. The nested object validator adds "name: " and "email: " for failing properties
+
+<Warning>
+Nested error paths can become quite long in deeply nested structures. Consider the path depth when designing your error display UI.
+</Warning>
+
+## Error handling patterns
+
+### Display all errors
+
+```typescript
+const result = schema.validate(data);
+
+if (!result.valid) {
+    result.errors.forEach(error => {
+        console.error(`Validation error: ${error}`);
+    });
+}
+```
+
+### Display first error only
+
+```typescript
+const result = schema.validate(data);
+
+if (!result.valid) {
+    console.error(result.errors[0]);
+}
+```
+
+### Group errors by field
+
+```typescript
+const result = schema.validate(data);
+
+if (!result.valid) {
+    const errorsByField = result.errors.reduce((acc, error) => {
+        const [field, ...messageParts] = error.split(": ");
+        const message = messageParts.join(": ");
+        
+        if (!acc[field]) acc[field] = [];
+        acc[field].push(message);
+        
+        return acc;
+    }, {} as Record<string, string[]>);
+    
+    console.log(errorsByField);
+    // { "name": ["String is less than expected"], "age": [...] }
+}
+```
+
+### Return formatted response
+
+```typescript
+function validateRequest(data: any) {
+    const result = schema.validate(data);
+    
+    if (!result.valid) {
+        return {
+            success: false,
+            message: "Validation failed",
+            errors: result.errors
+        };
+    }
+    
+    return {
+        success: true,
+        data: data
+    };
+}
+```
+
+<Accordion title="Complete error handling example">
+```typescript
+import { b } from "balid";
+
+const createUserSchema = b.object({
+    username: b.string({ 
+        min: 3,
+        max: 20,
+        match: /^[a-zA-Z0-9_]+$/,
+        lessThanExpected: "Username must be at least 3 characters",
+        gratherThanExpected: "Username cannot exceed 20 characters",
+        notMatchPattern: "Username can only contain alphanumeric characters and underscores"
+    }),
+    email: b.string({ 
+        match: /^[^@]+@[^@]+\.[^@]+$/,
+        notMatchPattern: "Please provide a valid email address"
+    }),
+    age: b.optional(b.number({ 
+        min: 13,
+        max: 120,
+        lessThanExpected: "You must be at least 13 years old",
+        gratherThanExpected: "Please enter a valid age"
+    })),
+    tags: b.array(b.string({ 
+        min: 1,
+        lessThanExpected: "Tags cannot be empty"
+    }))
+});
+
+function createUser(data: any) {
+    const result = createUserSchema.validate(data);
+    
+    if (!result.valid) {
+        return {
+            success: false,
+            errors: result.errors.map(error => {
+                // Parse path and message
+                const parts = error.split(": ");
+                const path = parts.slice(0, -1).join(".");
+                const message = parts[parts.length - 1];
+                
+                return { path, message };
+            })
+        };
+    }
+    
+    return {
+        success: true,
+        user: data
+    };
+}
+
+// Usage
+const result = createUser({
+    username: "ab",
+    email: "not-an-email",
+    age: 10,
+    tags: ["", "typescript"]
+});
+
+console.log(result);
+// {
+//   success: false,
+//   errors: [
+//     { path: "username", message: "Username must be at least 3 characters" },
+//     { path: "email", message: "Please provide a valid email address" },
+//     { path: "age", message: "You must be at least 13 years old" },
+//     { path: "tags.0", message: "Tags cannot be empty" }
+//   ]
+// }
+```
+</Accordion>

@@ -1,0 +1,373 @@
+---
+title: Validation
+description: Understand how the validation process works in Balid
+---
+
+## How validation works
+
+Every schema in Balid has a `validate()` method that accepts any input and returns a validation result. The validation process is defined by the `Schema` type in `types.ts:1-3`:
+
+```typescript
+export type Schema = {
+    validate: (input: any) => Valid;
+};
+```
+
+## Valid return type
+
+The `validate()` method returns a `Valid` object with two properties (`types.ts:7-10`):
+
+```typescript
+export type Valid = {
+    valid: boolean;    // true if validation passed, false otherwise
+    errors: string[];  // array of error messages (empty if valid)
+};
+```
+
+<Note>
+The `errors` array is always present, even when validation succeeds. A successful validation returns an empty array `[]`.
+</Note>
+
+## Validation internals
+
+Balid uses two internal helper functions to manage validation (`validators.ts:3-18`):
+
+### The handle function
+
+Creates a new validation result initialized to success:
+
+```typescript
+const handle: () => Valid = () => {
+    return {
+        valid: true,
+        errors: [],
+    };
+};
+```
+
+### The check function
+
+Performs a validation check and updates the result:
+
+```typescript
+const check = (valid: Valid, check: boolean, errorMessage?: string) => {
+    if (!check) {
+        valid.valid = false;
+        errorMessage && valid.errors.push(errorMessage);
+    }
+    return;
+};
+```
+
+When a check fails, it sets `valid` to `false` and adds the error message to the `errors` array.
+
+## Success cases
+
+When validation succeeds, the result has `valid: true` and an empty `errors` array:
+
+```typescript
+import { b } from "balid";
+
+const schema = b.string();
+const result = schema.validate("hello");
+
+console.log(result);
+// Output: { valid: true, errors: [] }
+```
+
+### Multiple constraints passing
+
+Even with multiple constraints, a successful validation returns an empty error array:
+
+```typescript
+const schema = b.string({ min: 3, max: 10 });
+const result = schema.validate("hello");
+
+console.log(result);
+// Output: { valid: true, errors: [] }
+```
+
+### Complex object validation
+
+```typescript
+const userSchema = b.object({
+    name: b.string({ min: 1 }),
+    age: b.number({ min: 0, max: 120 })
+});
+
+const result = userSchema.validate({
+    name: "Alice",
+    age: 30
+});
+
+console.log(result);
+// Output: { valid: true, errors: [] }
+```
+
+## Failure cases
+
+When validation fails, `valid` is `false` and `errors` contains descriptive messages:
+
+### Type mismatch
+
+```typescript
+const schema = b.number();
+const result = schema.validate("not a number");
+
+console.log(result);
+// Output: { valid: false, errors: ["Not a number"] }
+```
+
+The type check happens first in each validator (e.g., `validators.ts:47` for numbers):
+
+```typescript
+check(valid, typeof input === "number", options?.notExpectedType ?? "Not a number");
+```
+
+### Constraint violations
+
+When constraints are violated, specific error messages are added:
+
+```typescript
+const schema = b.string({ min: 5, max: 10 });
+const result = schema.validate("hi");
+
+console.log(result);
+// Output: { valid: false, errors: ["String is less than expected"] }
+```
+
+The string validator checks length constraints (`validators.ts:72-78`):
+
+```typescript
+if (min != undefined) {
+    check(valid, String(input).length >= min, 
+          options?.lessThanExpected ?? "String is less than expected");
+}
+
+if (max != undefined) {
+    check(valid, String(input).length <= max, 
+          options?.gratherThanExpected ?? "String is grather than expected");
+}
+```
+
+### Multiple errors
+
+Multiple failed checks accumulate errors:
+
+```typescript
+const schema = b.string({ min: 5, match: /^[A-Z]/ });
+const result = schema.validate("hi");
+
+console.log(result);
+// Output: { 
+//   valid: false, 
+//   errors: [
+//     "String is less than expected",
+//     "String does not match pattern"
+//   ]
+// }
+```
+
+## Reading validation results
+
+There are multiple ways to handle validation results:
+
+### Conditional checking
+
+```typescript
+const result = schema.validate(input);
+
+if (result.valid) {
+    console.log("Validation passed!");
+} else {
+    console.error("Validation failed:", result.errors);
+}
+```
+
+### Early return pattern
+
+```typescript
+function processUser(data: any) {
+    const result = userSchema.validate(data);
+    
+    if (!result.valid) {
+        return { error: result.errors.join(', ') };
+    }
+    
+    // Process valid user data
+    return { success: true };
+}
+```
+
+<Tip>
+The `errors` array always contains string messages, making it easy to display to users or log for debugging.
+</Tip>
+
+## Validation logic examples
+
+Let's look at real validation implementations from `validators.ts`:
+
+### Boolean validation
+
+The simplest validator (`validators.ts:28-37`):
+
+```typescript
+boolean: (options?: DefaultOptions) => {
+    return {
+        validate(input: any) {
+            const valid = handle();
+            
+            check(valid, typeof input === "boolean", 
+                  options?.notExpectedType ?? "Not a boolean");
+            
+            return valid;
+        },
+    };
+}
+```
+
+This performs a single type check and returns the result.
+
+### Number validation with constraints
+
+More complex validation with multiple checks (`validators.ts:39-59`):
+
+```typescript
+number: (options?: NumberOptions) => {
+    let min = options?.min ?? undefined;
+    let max = options?.max ?? undefined;
+    
+    return {
+        validate(input: any) {
+            const valid = handle();
+            
+            // Check type first
+            check(valid, typeof input === "number", 
+                  options?.notExpectedType ?? "Not a number");
+            
+            // Then check min constraint
+            if (min != undefined) {
+                check(valid, input >= min, 
+                      options?.gratherThanExpected ?? "Number is less than expected");
+            }
+            
+            // Finally check max constraint
+            if (max != undefined) {
+                check(valid, input <= max, 
+                      options?.lessThanExpected ?? "Number is grather than expected");
+            }
+            
+            return valid;
+        },
+    };
+}
+```
+
+Notice how constraints are checked sequentially, and each failed check adds to the errors array.
+
+<Accordion title="Complete string validation example">
+The string validator includes type, length, and pattern checks (`validators.ts:61-86`):
+
+```typescript
+string: (options?: StringOptions) => {
+    let min = options?.min ?? undefined;
+    let max = options?.max ?? undefined;
+    let match = options?.match ?? undefined;
+    
+    return {
+        validate(input: any) {
+            const valid = handle();
+            
+            check(valid, typeof input === "string", 
+                  options?.notExpectedType ?? "Not a string");
+            
+            if (min != undefined) {
+                check(valid, String(input).length >= min, 
+                      options?.lessThanExpected ?? "String is less than expected");
+            }
+            
+            if (max != undefined) {
+                check(valid, String(input).length <= max, 
+                      options?.gratherThanExpected ?? "String is grather than expected");
+            }
+            
+            if (match != undefined) {
+                check(valid, match.test(input), 
+                      options?.notMatchPattern ?? "String does not match pattern");
+            }
+            
+            return valid;
+        },
+    };
+}
+```
+</Accordion>
+
+## Array validation logic
+
+Array validation demonstrates early returns when validation fails (`validators.ts:109-132`):
+
+```typescript
+array: (schema?: Schema, options?: ArrayOptions) => {
+    return {
+        validate(input: any) {
+            let valid = handle();
+            
+            check(valid, Array.isArray(input), 
+                  options?.notExpectedType ?? "Not an array");
+            
+            // Early return if not an array
+            if (!valid.valid) {
+                return valid;
+            }
+            
+            // Validate each element
+            for (let i = 0; i < input.length; i++) {
+                const value = input[i];
+                const validateValue = schema.validate(value);
+                
+                check(valid, validateValue.valid);
+                valid.errors.push(...validateValue.errors.map((error) => i + ": " + error));
+            }
+            
+            return valid;
+        },
+    };
+}
+```
+
+<Warning>
+If the array type check fails, the validator returns early (line 116-118) to avoid attempting to iterate over a non-array value.
+</Warning>
+
+## Or utility validation
+
+The `or` utility shows a different validation pattern - it succeeds if any schema matches (`validators.ts:148-165`):
+
+```typescript
+or: (options: OrOptions, ...schemas: Schema[]) => {
+    return {
+        validate(input) {
+            let valid = handle();
+            
+            for (const schema of schemas) {
+                const validate = schema.validate(input);
+                
+                // Return immediately on first success
+                if (validate.valid) {
+                    valid.valid = true;
+                    return valid;
+                }
+            }
+            
+            // All schemas failed
+            return { 
+                valid: false, 
+                errors: [options.notMatchSchema ?? "Or does not match schema"] 
+            };
+        },
+    };
+}
+```
+
+This validator returns as soon as any schema validates successfully, making it efficient for union types.

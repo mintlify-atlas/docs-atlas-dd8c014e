@@ -1,0 +1,91 @@
+---
+title: Introduction
+description: A lightweight TypeScript schema validator for runtime validation
+---
+
+## What is Balid?
+
+Balid is a lightweight schema validator for TypeScript that provides runtime type validation with a simple, intuitive API. Designed as a minimalist alternative to heavier validation libraries, Balid helps you validate data structures with clear error messages and full TypeScript support.
+
+<Note>
+  Balid is currently not production ready and under active development.
+</Note>
+
+## Key features
+
+**Primitive validators**
+
+Validate basic types including `any`, `boolean`, `number`, and `string` with built-in type checking.
+
+```typescript
+import { b } from "balid";
+
+const schema = b.string();
+schema.validate("Hello World"); // returns { valid: true, errors: [] }
+schema.validate(123); // returns { valid: false, errors: [...] }
+```
+
+**Complex types**
+
+Handle objects and arrays with nested schemas for comprehensive data validation.
+
+```typescript
+const userSchema = b.object({
+  name: b.string(),
+});
+
+userSchema.validate({ name: "John Doe" }); // returns { valid: true, errors: [] }
+```
+
+**Constraint validation**
+
+Apply `min`, `max`, and pattern matching constraints to your schemas.
+
+```typescript
+const ageSchema = b.number({ min: 10, max: 20 });
+ageSchema.validate(15); // returns { valid: true, errors: [] }
+ageSchema.validate(25); // returns { valid: false, errors: [...] }
+```
+
+**Utility functions**
+
+Compose schemas with `optional`, `or`, and `and` for flexible validation logic.
+
+```typescript
+const schema = b.or({}, b.string(), b.boolean());
+schema.validate("hello world"); // returns { valid: true, errors: [] }
+schema.validate(true); // returns { valid: true, errors: [] }
+```
+
+**Custom error messages**
+
+Override default error messages to provide context-specific feedback.
+
+```typescript
+const schema = b.boolean({ notExpectedType: "Value must be true or false" });
+```
+
+## Quick links
+
+<CardGroup cols={3}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Balid with npm, yarn, or pnpm
+  </Card>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Get up and running in minutes
+  </Card>
+  <Card title="API reference" icon="code" href="/api/overview">
+    Explore all validators and utilities
+  </Card>
+</CardGroup>
+
+## Why Balid?
+
+If you're looking for a lightweight alternative to heavier validation libraries like Zod, Balid offers:
+
+- **Minimal bundle size** - Only the essentials for runtime validation
+- **Simple API** - Intuitive method chaining and composition
+- **TypeScript-first** - Built with TypeScript for full type safety
+- **Clear validation responses** - Structured `{ valid: boolean, errors: string[] }` format
+
+Balid focuses on simplicity and performance, making it ideal for projects where bundle size matters and you need straightforward schema validation without the overhead.

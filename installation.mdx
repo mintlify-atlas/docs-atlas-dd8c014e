@@ -1,0 +1,69 @@
+---
+title: Installation
+description: Install Balid and set up your TypeScript project for schema validation
+---
+
+## Install Balid
+
+Install Balid using your preferred package manager:
+
+<CodeGroup>
+
+```bash npm
+npm install balid
+```
+
+```bash yarn
+yarn install balid
+```
+
+```bash pnpm
+pnpm add balid
+```
+
+</CodeGroup>
+
+## Import in your project
+
+Balid exports a single `b` object that contains all validators and utilities:
+
+```typescript
+import { b } from "balid";
+```
+
+## Verify installation
+
+Create a simple schema to verify Balid is working correctly:
+
+```typescript
+import { b } from "balid";
+
+const schema = b.string();
+const result = schema.validate("Hello World");
+
+console.log(result); // { valid: true, errors: [] }
+```
+
+If you see `{ valid: true, errors: [] }` logged to the console, Balid is installed and ready to use.
+
+## TypeScript configuration
+
+Balid is written in TypeScript and includes type definitions out of the box. Ensure your `tsconfig.json` has the following settings for the best experience:
+
+```json
+{
+  "compilerOptions": {
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "strict": true
+  }
+}
+```
+
+<Tip>
+  Balid uses ES modules. Make sure your project is configured to support them by setting `"type": "module"` in your `package.json`.
+</Tip>
+
+## Next steps
+
+Now that Balid is installed, check out the [quick start guide](/quickstart) to learn how to create your first schemas.
