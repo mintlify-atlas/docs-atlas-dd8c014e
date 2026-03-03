@@ -1,0 +1,67 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Balid",
+  "projectDescription": "A lightweight TypeScript schema validator with intuitive API and custom error messages",
+  "theme": "mint",
+  "primaryColor": "#10b981",
+  "lightColor": "#34d399",
+  "darkColor": "#059669",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "installation",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "core/schemas",
+          "core/validation",
+          "core/errors"
+        ]
+      },
+      {
+        "group": "API Reference",
+        "pages": [
+          "api/overview",
+          "api/primitives",
+          "api/complex-types",
+          "api/utilities"
+        ]
+      },
+      {
+        "group": "Advanced",
+        "pages": [
+          "advanced/custom-errors",
+          "advanced/typescript",
+          "advanced/best-practices"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Primitive type validation (any, boolean, string, number)",
+    "Complex type validation (object, array)",
+    "Utility validators (optional, or, and)",
+    "Constraint validation (min, max, regex patterns)",
+    "Custom error messages"
+  ],
+  "publicApiSurface": [
+    "b.any()",
+    "b.boolean()",
+    "b.string()",
+    "b.number()",
+    "b.object()",
+    "b.array()",
+    "b.optional()",
+    "b.or()",
+    "b.and()",
+    "Schema",
+    "Valid",
+    "TypeParams"
+  ]
+}
